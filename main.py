@@ -3,7 +3,22 @@
 import cv2
 import numpy as np
 import io
+from time import sleep
 import picamera
+from gpiozero import Robot
+# GPIOの初期設定
+import RPi.GPIO as GPIO
+GPIO.setmode(GPIO.BCM)
+
+# サーボモータの設定
+# GPIO 4
+GPIO.setup(4, GPIO.OUT)
+
+# GPIO4 PWM, 周波数:50Hz
+p = GPIO.PWM(4, 50)
+
+# Duty Cycle 0%
+p.start(0.0)
 
 # カメラの設定
 stream = io.BytesIO()
@@ -18,6 +33,10 @@ camera.resolution = (camera_size['width'], camera_size['height'])
 camera.hflip = True
 camera.vflip = True
 
+# ツインモータの設定
+# robot オブジェクトを作成
+robot = Robot(left=(17, 18), right=(19, 20))
+robot.stop()
 
 # 各種定数
 red = (0, 0, 255)
@@ -73,6 +92,18 @@ def is_in_target_area(x, y):
     return x_in_target_area(x) and y_in_target_area(y)
 
 
+def set_servo_degree(degree):
+    if(degree < 0):
+        degree = 0
+    elif(degree > 180):
+        degree = 180
+    dc = 2.5 + (12.0 - 2.5) / 180 * (degree + 90)
+    p.ChangeDutyCycle(dc)
+    sleep(0.1)
+    # 回転終了したら一旦 DutyCycle を 0% に戻す
+    p.ChangeDutyCycle(0.0)
+
+
 while(True):
     # カメラからの画像
     camera.capture(stream, format="jpeg")
@@ -103,23 +134,25 @@ while(True):
     # 重心を中心に円を描画(塗りつぶし)
     cv2.circle(img, centroid, 10, red, thickness=-1)
 
-    # # 重心のx座標がターゲット領域内にあるかどうかを判定
-    # if x_in_target_area(centroid[0]):
-    #     pass
-    # else:
-    #     if centroid[0] < target_area['x_left']:
-    #         pass  # 右にうごかす
-    #     else:
-    #         pass  # 左にうごかす
+    # 重心のx座標がターゲット領域内にあるかどうかを判定
+    if x_in_target_area(centroid[0]):
+        robot.stop()
+    else:
+        if centroid[0] < target_area['x_left']:
+            robot.right(0.5)
+        else:
+            robot.left(0.5)
 
-    # # 重心のy座標がターゲット領域内にあるかどうかを判定
-    # if y_in_target_area(centroid[1]):
-    #     pass
-    # else:
-    #     if centroid[1] < target_area['y_lower']:
-    #         pass  # 上にうごかす
-    #     else:
-    #         pass  # 下にうごかす
+    # 重心のy座標がターゲット領域内にあるかどうかを判定
+    if y_in_target_area(centroid[1]):
+        pass
+    else:
+        if centroid[1] < target_area['y_lower']:
+            degree += 10
+            set_servo_degree(degree)
+        else:
+            degree -= 10
+            set_servo_degree(degree)
 
     if is_in_target_area(centroid[0], centroid[1]):
         reticle_color = green
@@ -129,6 +162,10 @@ while(True):
     cv2.rectangle(img, (target_area['x_left'], target_area['y_upper']),
                   (target_area['x_right'], target_area['y_lower']), reticle_color, thickness=5)
 
+    # 0.5 秒インターバル
+    sleep(0.5)
+
+    # 画像を表示
     cv2.imshow("contour image", img)
     if cv2.waitKey(10) & 0xFF == ord(" "):
         break
