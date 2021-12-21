@@ -32,7 +32,7 @@ servo = Servo(4, initial_value=0, min_pulse_width=0.5/1000, max_pulse_width=2.4/
 servo.detach()
 servo_var = 0.0
 change_per_once = 0.05
-MAX_SERVO_VAL = 0.4
+MAX_SERVO_VAL = 0.5
 MIN_SERVO_VAL = 0.0
 
 # 各種定数
@@ -42,7 +42,7 @@ green = (0, 255, 0)
 white = (255, 255, 255)
 black = (0, 0, 0)
 
-line_color = green
+line_color = red
 line_width = 2
 
 
@@ -103,9 +103,9 @@ while(True):
     s = img_hsv[:, :, 1]
     v = img_hsv[:, :, 2]
 
-    # 緑色のマスク画像を生成
+    # 赤色のマスク画像を生成
     mask = np.zeros(h.shape, dtype=np.uint8)
-    mask[((h > 30) & (h < 85)) & (s > 128)] = 255
+    mask[(((h > 0) & (h < 25))|((h > 150) & (h < 180))) & (s > 153) & (v > 128)] = 255
 
     # マスク画像の輪郭を取得
     contours, _ = cv2.findContours(
