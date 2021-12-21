@@ -5,20 +5,8 @@ import numpy as np
 import io
 from time import sleep
 import picamera
-from gpiozero import Robot
-# GPIOの初期設定
-import RPi.GPIO as GPIO
-GPIO.setmode(GPIO.BCM)
+from gpiozero import Robot, Servo
 
-# サーボモータの設定
-# GPIO 4
-GPIO.setup(4, GPIO.OUT)
-
-# GPIO4 PWM, 周波数:50Hz
-p = GPIO.PWM(4, 50)
-
-# Duty Cycle 0%
-p.start(0.0)
 
 # カメラの設定
 stream = io.BytesIO()
@@ -37,6 +25,15 @@ camera.vflip = True
 # robot オブジェクトを作成
 robot = Robot(left=(17, 18), right=(19, 20))
 robot.stop()
+speed = 0.5
+
+# サーボモータの設定
+servo = Servo(4, initial_value=0, min_pulse_width=0.5/1000, max_pulse_width=2.4/1000)
+servo.detach()
+servo_var = 0.0
+change_per_once = 0.05
+MAX_SERVO_VAL = 0.4
+MIN_SERVO_VAL = 0.0
 
 # 各種定数
 red = (0, 0, 255)
@@ -70,10 +67,12 @@ degree: int = 0
 def get_centroid(contour):  # 重心を求める
     # 輪郭のモーメントを計算する
     moment = cv2.moments(contour)
-    # モーメントから重心を計算する
-    center_x = moment["m10"] / moment["m00"]
-    center_y = moment["m01"] / moment["m00"]
-    return (center_x, center_y)
+    if(moment["m00"]!=0):
+        # モーメントから重心を計算する
+        center_x = moment["m10"] / moment["m00"]
+        center_y = moment["m01"] / moment["m00"]
+        return (int(center_x), int(center_y))
+    return (150,150)
 
 
 def get_max_contour(contours):  # 最大の面積を持つ輪郭を求める
@@ -90,19 +89,6 @@ def y_in_target_area(y):
 
 def is_in_target_area(x, y):
     return x_in_target_area(x) and y_in_target_area(y)
-
-
-def set_servo_degree(degree):
-    if(degree < 0):
-        degree = 0
-    elif(degree > 180):
-        degree = 180
-    dc = 2.5 + (12.0 - 2.5) / 180 * (degree + 90)
-    p.ChangeDutyCycle(dc)
-    sleep(0.1)
-    # 回転終了したら一旦 DutyCycle を 0% に戻す
-    p.ChangeDutyCycle(0.0)
-
 
 while(True):
     # カメラからの画像
@@ -125,34 +111,40 @@ while(True):
     contours, _ = cv2.findContours(
         mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+    centroid = (150,150)
     # 該当領域の最大面積部分を取得
-    contour = get_max_contour(contours)
-    cv2.drawContours(img, [contour], 0, line_color, line_width)
+    if (len(contours)!=0):
+        contour = get_max_contour(contours)
+        cv2.drawContours(img, [contour], 0, line_color, line_width)
 
-    # 重心を取得
-    centroid = get_centroid(contour)
-    # 重心を中心に円を描画(塗りつぶし)
-    cv2.circle(img, centroid, 10, red, thickness=-1)
-
+        # 重心を取得
+        centroid = get_centroid(contour)
+        # 重心を中心に円を描画(塗りつぶし)
+        cv2.circle(img, centroid, 10, red, thickness=-1)
+    
     # 重心のx座標がターゲット領域内にあるかどうかを判定
     if x_in_target_area(centroid[0]):
         robot.stop()
     else:
         if centroid[0] < target_area['x_left']:
-            robot.right(0.5)
+            robot.left(speed)
         else:
-            robot.left(0.5)
+            robot.right(speed)
 
     # 重心のy座標がターゲット領域内にあるかどうかを判定
     if y_in_target_area(centroid[1]):
         pass
     else:
         if centroid[1] < target_area['y_lower']:
-            degree += 10
-            set_servo_degree(degree)
+            if(servo_var < MAX_SERVO_VAL):
+                servo_var += change_per_once
         else:
-            degree -= 10
-            set_servo_degree(degree)
+            if(servo_var > MIN_SERVO_VAL):
+                servo_var -= change_per_once
+            
+        servo.value = servo_var
+        sleep(0.2)
+        servo.detach()
 
     if is_in_target_area(centroid[0], centroid[1]):
         reticle_color = green
